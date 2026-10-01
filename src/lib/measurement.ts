@@ -84,8 +84,10 @@ export function extractMeasurements(
   imageWidth: number,
   imageHeight: number,
   userHeightCm?: number,
+  sideLandmarks?: NormalizedLandmark[] | null,
 ): MeasurementResult {
   const lm = landmarks;
+  const side = sideLandmarks ?? null;
 
   // --- Height estimation ---
   // Use the vertical span from nose to ankle (the tallest visible point).
@@ -269,8 +271,24 @@ export function extractMeasurements(
     { measurement_type: 'sleeve_length', value_cm: round(sleeveDist), uncertainty_cm: sleeveConfidence > 0.5 ? 2.0 : 4.0, confidence: sleeveConfidence },
   ];
 
-  // --- Overall confidence ---
-  const confidences = measurements.map((m) => m.confidence);
+  // --- Front/side consistency ---
+  // The side capture is used as a second geometric observation. It does not pretend
+  // to recover full 3D depth, but it can detect large posture/scale disagreement.
+  let sideConsistency = 1;
+  if (side && side.length >= 33) {
+    const sideNose = side[LANDMARKS.NOSE];
+    const sideLeftAnkle = side[LANDMARKS.LEFT_ANKLE];
+    const sideRightAnkle = side[LANDMARKS.RIGHT_ANKLE];
+    const sideHeight = sideNose && sideLeftAnkle && sideRightAnkle
+      ? Math.abs(sideNose.y - Math.min(sideLeftAnkle.y, sideRightAnkle.y))
+      : 0;
+    if (normalizedHeight > 0 && sideHeight > 0) {
+      const ratio = Math.min(normalizedHeight, sideHeight) / Math.max(normalizedHeight, sideHeight);
+      sideConsistency = Math.max(0.5, Math.min(1, ratio));
+    }
+  }
+
+  const confidences = measurements.map((m) => m.confidence * sideConsistency);
   const overallConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length;
 
   // --- Scan quality ---
