@@ -72,6 +72,9 @@ export default function ScanView({ orgId, onBodyTwinCreated }: ScanViewProps) {
   const [userHeight, setUserHeight] = useState('');
   const [progress, setProgress] = useState(0);
   const [processingMsg, setProcessingMsg] = useState(PROCESSING_MESSAGES[0]);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualValues, setManualValues] = useState<Record<string, string>>({});
+  const [manualSaving, setManualSaving] = useState(false);
 
   const cleanup = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -278,6 +281,38 @@ export default function ScanView({ orgId, onBodyTwinCreated }: ScanViewProps) {
     }
   };
 
+  const saveManualMeasurements = async () => {
+    const required = ['height', 'chest', 'waist', 'hip', 'shoulder_width', 'torso_length', 'inseam'];
+    if (required.some((key) => !manualValues[key] || Number(manualValues[key]) <= 0)) {
+      setError('Please enter height, chest, waist, hip, shoulder width, torso length, and inseam.');
+      return;
+    }
+    setManualSaving(true);
+    setError(null);
+    try {
+      const scanId = await createScanRecord(orgId, 'rgb_camera', { source: 'manual_measurement_fallback', userAgent: navigator.userAgent });
+      const rows = required.map((type) => ({
+        measurement_type: type as any,
+        value_cm: Number(manualValues[type]),
+        uncertainty_cm: 1.5,
+        confidence: 0.9,
+      }));
+      const bodyTwinId = await createBodyTwin(
+        orgId,
+        scanId,
+        rows,
+        0.9,
+        'good',
+        Number(manualValues.height),
+        {},
+        {},
+      );
+      onBodyTwinCreated(bodyTwinId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save manual measurements');
+    } finally { setManualSaving(false); }
+  };
+
   const restart = () => {
     cleanup();
     setStep('idle');
@@ -343,6 +378,19 @@ export default function ScanView({ orgId, onBodyTwinCreated }: ScanViewProps) {
       )}
 
       {/* Pre-scan instructions */}
+      {manualMode && step === 'idle' && (
+        <Card padding="lg">
+          <div className="flex items-center justify-between mb-4"><div><h3 className="text-primary font-semibold text-sm">Manual measurement fallback</h3><p className="text-tertiary text-xs mt-1">Use measured values when camera scanning is unavailable.</p></div><Button variant="ghost" size="sm" onClick={() => setManualMode(false)}>Camera scan</Button></div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              ['height','Height'],['chest','Chest'],['waist','Waist'],['hip','Hip'],['shoulder_width','Shoulder width'],['torso_length','Torso length'],['inseam','Inseam']
+            ].map(([key,label]) => <label key={key} className="block"><span className="block text-xs text-secondary mb-1">{label} (cm)</span><input type="number" min="1" step="0.1" value={manualValues[key] ?? ''} onChange={(e) => setManualValues({ ...manualValues, [key]: e.target.value })} className="w-full px-3 py-2.5 bg-secondary border border-app rounded-lg text-primary text-sm" /></label>)}
+          </div>
+          {error && <p className="text-error text-xs mt-3">{error}</p>}
+          <Button size="lg" className="w-full mt-4" onClick={() => void saveManualMeasurements()} disabled={manualSaving}>{manualSaving ? 'Saving measurements…' : 'Create Body Twin'}</Button>
+        </Card>
+      )}
+
       {step === 'idle' && (
         <div className="space-y-4">
           <Card padding="lg">
@@ -412,9 +460,11 @@ export default function ScanView({ orgId, onBodyTwinCreated }: ScanViewProps) {
                 Providing your height calibrates all measurements. Without it, estimates use average proportions with lower confidence.
               </p>
             </div>
-            <Button size="lg" className="w-full" onClick={startScan}>
+            {!manualMode && <Button size="lg" className="w-full" onClick={startScan}>
               Start Body Scan
-            </Button>
+            </Button>}
+            {!manualMode && <button type="button" onClick={() => setManualMode(true)} className="w-full mt-2 text-sm text-secondary hover:text-primary py-2">Camera unavailable? Enter measurements manually</button>}
+
           </Card>
         </div>
       )}
