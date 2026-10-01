@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getProductTwins, getProductMeasurements, createProductTwin, updateProductTwin } from '@/lib/data';
 import { Card, Button, Input, Select, Badge, EmptyState } from '@/components/ui';
+import { ProductVisualization } from '@/components/ProductVisualization';
 import type { ProductTwin, ProductMeasurement, ProductMeasurementType, FitType } from '@/lib/types';
 
 interface ProductViewProps {
@@ -255,6 +256,11 @@ export default function ProductView({ orgId, selectedId, onSelect }: ProductView
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{Object.keys(PRODUCT_MEASUREMENT_LABELS).map((type) => <Input key={type} label={PRODUCT_MEASUREMENT_LABELS[type]} type="number" step="0.5" value={editValues[type] ?? ''} onChange={(e) => setEditValues({ ...editValues, [type]: e.target.value })} />)}</div>
                     <div className="flex gap-2 justify-end"><Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button><Button size="sm" onClick={() => void saveEdits()} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div>
                   </div>}
+                </Card>
+
+                <Card padding="none" className="overflow-hidden">
+                  <div className="px-5 py-3 border-b border-app"><h3 className="text-primary text-sm font-medium">3D Product Twin</h3><p className="text-tertiary text-xs">Geometry preview generated from the stored garment measurements.</p></div>
+                  <div className="h-[320px]"><ProductVisualization measurements={measurements.map((m) => ({ measurement_type: m.measurement_type, value_cm: m.value_cm }))} fitType={activeProduct.fit_type} /></div>
                 </Card>
 
                 <Card padding="none" className="overflow-hidden">
