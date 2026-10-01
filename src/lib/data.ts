@@ -300,6 +300,30 @@ export async function saveFitFeedback(
   });
 
   if (error) throw error;
+
+  const eventType =
+    outcome === 'pending' ? 'fit.feedback_received' : 'fit.feedback_received';
+
+  const { data: prediction } = await supabase
+    .from('fit_predictions')
+    .select('organization_id')
+    .eq('id', fitPredictionId)
+    .maybeSingle();
+
+  if (prediction?.organization_id) {
+    await logEvent({
+      organization_id: prediction.organization_id,
+      event_type: eventType,
+      entity_type: 'fit_feedback',
+      entity_id: fitPredictionId,
+      payload: {
+        outcome,
+        outcome_reason: outcomeReason ?? null,
+        fit_rating: fitRating ?? null,
+      },
+      model_version: null,
+    });
+  }
 }
 
 export async function logEvent(event: EventRecord): Promise<void> {
