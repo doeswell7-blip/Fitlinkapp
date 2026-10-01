@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { getBodyTwins, getBodyMeasurements, getProductTwins, getProductMeasurements, saveFitPrediction, getFitPredictions, saveFitFeedback } from '@/lib/data';
 import { predictFit, compareSizes, type SizeComparison } from '@/lib/fit-engine';
 import { Card, Button, Select, Badge, EmptyState } from '@/components/ui';
+import { BodyVisualization } from '@/components/BodyVisualization';
+import { ProductVisualization } from '@/components/ProductVisualization';
 import type { BodyTwin, BodyMeasurement, ProductTwin, ProductMeasurement, FitType, FitAreaResult, FitPredictionRecord } from '@/lib/types';
 
 interface FitResultViewProps {
@@ -218,6 +220,19 @@ export default function FitResultView({
           ))}
         </Select>
       </div>
+
+      {activeProduct && bodyMeasurements.length > 0 && productMeasurements.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card padding="none" className="overflow-hidden">
+            <div className="px-5 py-3 border-b border-app"><h3 className="text-primary text-sm font-medium">Body Twin</h3><p className="text-tertiary text-xs">Measured body geometry</p></div>
+            <div className="h-[300px]"><BodyVisualization measurements={bodyMeasurements.map((m) => ({ measurement_type: m.measurement_type, value_cm: m.value_cm }))} heightCm={bodyTwins.find((b) => b.id === bodyId)?.height_cm ?? null} /></div>
+          </Card>
+          <Card padding="none" className="overflow-hidden">
+            <div className="px-5 py-3 border-b border-app"><h3 className="text-primary text-sm font-medium">Product Twin</h3><p className="text-tertiary text-xs">Measured product geometry</p></div>
+            <div className="h-[300px]"><ProductVisualization measurements={productMeasurements.map((m) => ({ measurement_type: m.measurement_type, value_cm: m.value_cm }))} fitType={activeProduct.fit_type} /></div>
+          </Card>
+        </div>
+      )}
 
       {/* Fit preference */}
       <div>
