@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseConfigError } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import { useTheme, ThemeToggle } from '@/components/ThemeToggle';
 import AuthScreen from '@/components/AuthScreen';
@@ -102,6 +102,18 @@ function App() {
     setSelectedBodyTwinId(null);
     setSelectedProductTwinId(null);
   }, []);
+
+  if (supabaseConfigError) {
+    return (
+      <div className="min-h-screen bg-app flex items-center justify-center px-4">
+        <div className="w-full max-w-lg surface rounded-2xl p-6 border border-error/30">
+          <h1 className="text-primary text-lg font-semibold">Fit Infrastructure needs configuration</h1>
+          <p className="text-secondary text-sm mt-2">{supabaseConfigError}</p>
+          <p className="text-tertiary text-xs mt-3">This diagnostic screen is intentional: the app will never silently render a blank page because an environment variable is missing.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return <div className="min-h-screen bg-app flex items-center justify-center"><div className="w-6 h-6 border-2 border-app border-t-accent rounded-full animate-spin" /></div>;
