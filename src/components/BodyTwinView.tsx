@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getBodyTwins, getBodyMeasurements } from '@/lib/data';
+import { getBodyTwins, getBodyMeasurements, updateBodyTwin } from '@/lib/data';
 import { BodyVisualization } from '@/components/BodyVisualization';
 import { Card, Badge, Button, EmptyState } from '@/components/ui';
 import type { BodyTwin, BodyMeasurement } from '@/lib/types';
@@ -53,6 +53,9 @@ export default function BodyTwinView({ orgId, selectedId, onSelect }: BodyTwinVi
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(selectedId);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadBodyTwins();
@@ -85,6 +88,37 @@ export default function BodyTwinView({ orgId, selectedId, onSelect }: BodyTwinVi
   };
 
   const activeTwin = bodyTwins.find((t) => t.id === activeId);
+
+  const startEditing = () => {
+    const values: Record<string, string> = {};
+    measurements.forEach((m) => { values[m.measurement_type] = String(m.value_cm); });
+    if (activeTwin?.height_cm) values.height = String(activeTwin.height_cm);
+    setEditValues(values);
+    setEditing(true);
+  };
+
+  const saveEdits = async () => {
+    if (!activeTwin) return;
+    setSaving(true);
+    try {
+      const nextMeasurements = measurements.map((m) => ({
+        ...m,
+        value_cm: Number(editValues[m.measurement_type] ?? m.value_cm),
+        confidence: m.confidence,
+        uncertainty_cm: m.uncertainty_cm,
+      })).filter((m) => Number.isFinite(m.value_cm) && m.value_cm > 0);
+      await updateBodyTwin(activeTwin.id, {
+        height_cm: editValues.height ? Number(editValues.height) : activeTwin.height_cm,
+        measurements: nextMeasurements,
+      });
+      await loadBodyTwins();
+      await loadMeasurements(activeTwin.id);
+      setEditing(false);
+    } catch (err) {
+      console.error('Failed to update body profile:', err);
+      alert(err instanceof Error ? err.message : 'Failed to update body profile');
+    } finally { setSaving(false); }
+  };
 
   if (loading) {
     return (
@@ -210,6 +244,20 @@ export default function BodyTwinView({ orgId, selectedId, onSelect }: BodyTwinVi
                     );
                   })}
                 </div>
+              </Card>
+
+              {/* Profile editing */}
+              <Card padding="md">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div><h3 className="text-primary text-sm font-medium">Correct measurements</h3><p className="text-tertiary text-xs mt-0.5">Use this when a scan needs a manual correction.</p></div>
+                  {!editing && <Button variant="secondary" size="sm" onClick={startEditing}>Edit</Button>}
+                </div>
+                {editing && <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {measurements.map((m) => <label key={m.measurement_type} className="block"><span className="block text-xs text-secondary mb-1">{MEASUREMENT_LABELS[m.measurement_type] ?? m.measurement_type} (cm)</span><input type="number" min="1" step="0.1" value={editValues[m.measurement_type] ?? ''} onChange={(e) => setEditValues({ ...editValues, [m.measurement_type]: e.target.value })} className="w-full px-3 py-2 bg-secondary border border-app rounded-lg text-primary text-sm" /></label>)}
+                  </div>
+                  <div className="flex gap-2 justify-end"><Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button><Button size="sm" onClick={() => void saveEdits()} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div>
+                </div>}
               </Card>
 
               {/* Privacy controls */}
