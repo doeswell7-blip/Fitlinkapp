@@ -158,3 +158,30 @@ export interface EventRecord {
   payload: Record<string, unknown>;
   model_version: string | null;
 }
+
+
+export interface FitPredictionRecord {
+  id: string;
+  organization_id: string;
+  body_twin_id: string;
+  product_twin_id: string;
+  recommended_size: string | null;
+  confidence: number;
+  area_results: Record<string, FitAreaResult>;
+  explanation: string[];
+  warnings: string[];
+  fit_preference: 'tight' | 'regular' | 'loose';
+  body_pose: string;
+  model_version: string;
+  created_at: string;
+}
+
+export interface FitFeedbackRecord {
+  id: string;
+  fit_prediction_id: string;
+  outcome: 'kept' | 'exchanged' | 'returned' | 'pending';
+  outcome_reason: string | null;
+  fit_rating: number | null;
+  area_feedback: Record<string, unknown>;
+  created_at: string;
+}
