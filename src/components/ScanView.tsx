@@ -241,7 +241,7 @@ export default function ScanView({ orgId, onBodyTwinCreated }: ScanViewProps) {
       const imgH = video?.videoHeight || 480;
 
       const heightCm = userHeight ? parseFloat(userHeight) : undefined;
-      const result = extractMeasurements(front, imgW, imgH, heightCm);
+      const result = extractMeasurements(front, imgW, imgH, heightCm, sideLandmarksRef.current);
 
       setProgress(90);
 
