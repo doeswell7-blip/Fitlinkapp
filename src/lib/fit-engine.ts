@@ -80,6 +80,7 @@ export function predictFit(input: FitInput): FitPredictionResult {
   const areaResults: Record<string, FitAreaResult> = {};
   const explanation: string[] = [];
   const warnings: string[] = [];
+  const missingAreas: string[] = [];
 
   // Build lookup maps
   const bodyMap = new Map(input.bodyMeasurements.map((m) => [m.measurement_type, m]));
@@ -94,7 +95,10 @@ export function predictFit(input: FitInput): FitPredictionResult {
     const bodyM = bodyMap.get(bodyKey as any);
     const productM = productMap.get(productKey as any);
 
-    if (!bodyM || !productM) continue;
+    if (!bodyM || !productM) {
+      missingAreas.push(area);
+      continue;
+    }
 
     const result = classifyFit(
       bodyM.value_cm,
@@ -109,7 +113,9 @@ export function predictFit(input: FitInput): FitPredictionResult {
     if (result === 'good') areasGood++;
 
     // Confidence contribution from body measurement confidence
-    confidenceSum += bodyM.confidence;
+    const measurementConfidence = Math.max(0, Math.min(1, bodyM.confidence));
+    const uncertaintyPenalty = Math.max(0.45, 1 - (bodyM.uncertainty_cm / Math.max(bodyM.value_cm, 1)) * 3);
+    confidenceSum += measurementConfidence * uncertaintyPenalty;
 
     // Build explanation
     const diff = productM.value_cm - (bodyM.value_cm + adjustedEase);
@@ -134,7 +140,12 @@ export function predictFit(input: FitInput): FitPredictionResult {
   // Overall confidence: based on how many areas are "good" and body measurement confidence
   const areaScore = areasChecked > 0 ? areasGood / areasChecked : 0;
   const bodyConfidenceScore = areasChecked > 0 ? confidenceSum / areasChecked : 0;
-  const confidence = Math.round((areaScore * 0.6 + bodyConfidenceScore * 0.4) * 1000) / 1000;
+  const coverageScore = Math.min(1, areasChecked / Object.keys(AREA_MAP).length);
+  const confidence = Math.round((areaScore * 0.5 + bodyConfidenceScore * 0.35 + coverageScore * 0.15) * 1000) / 1000;
+
+  if (missingAreas.length > 0) {
+    warnings.push(`Insufficient measurements for: ${missingAreas.join(', ')}. The result is partial.`);
+  }
 
   // Determine if this size is recommended
   const problemCount = Object.values(areaResults).filter(
