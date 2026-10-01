@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { getBodyTwins, getBodyMeasurements, getProductTwins, getProductMeasurements, saveFitPrediction } from '@/lib/data';
+import { getBodyTwins, getBodyMeasurements, getProductTwins, getProductMeasurements, saveFitPrediction, getFitPredictions, saveFitFeedback } from '@/lib/data';
 import { predictFit, compareSizes, type SizeComparison } from '@/lib/fit-engine';
 import { Card, Button, Select, Badge, EmptyState } from '@/components/ui';
-import type { BodyTwin, BodyMeasurement, ProductTwin, ProductMeasurement, FitType, FitAreaResult } from '@/lib/types';
+import type { BodyTwin, BodyMeasurement, ProductTwin, ProductMeasurement, FitType, FitAreaResult, FitPredictionRecord } from '@/lib/types';
 
 interface FitResultViewProps {
   orgId: string;
@@ -63,6 +63,9 @@ export default function FitResultView({
   const [comparison, setComparison] = useState<SizeComparison[] | null>(null);
   const [savedPredictionId, setSavedPredictionId] = useState<string | null>(null);
   const [predicting, setPredicting] = useState(false);
+  const [history, setHistory] = useState<FitPredictionRecord[]>([]);
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   const [bodyId, setBodyId] = useState(selectedBodyTwinId);
   const [productId, setProductId] = useState(selectedProductTwinId);
@@ -74,9 +77,10 @@ export default function FitResultView({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [twins, prods] = await Promise.all([getBodyTwins(orgId), getProductTwins(orgId)]);
+      const [twins, prods, predictions] = await Promise.all([getBodyTwins(orgId), getProductTwins(orgId), getFitPredictions(orgId, 20)]);
       setBodyTwins(twins);
       setProducts(prods);
+      setHistory(predictions);
       if (twins.length > 0 && !bodyId) setBodyId(twins[0].id);
       if (prods.length > 0 && !productId) setProductId(prods[0].id);
     } catch (err) { console.error('Failed to load data:', err); }
@@ -94,6 +98,18 @@ export default function FitResultView({
   };
 
   const activeProduct = products.find((p) => p.id === productId);
+
+  const submitFeedback = async (outcome: 'kept' | 'exchanged' | 'returned') => {
+    if (!savedPredictionId) return;
+    setFeedbackSaving(true);
+    setFeedbackMessage(null);
+    try {
+      await saveFitFeedback(savedPredictionId, outcome);
+      setFeedbackMessage('Feedback recorded: ' + outcome + '.');
+      setHistory(await getFitPredictions(orgId, 20));
+    } catch (err) { setFeedbackMessage(err instanceof Error ? err.message : 'Unable to save feedback'); }
+    finally { setFeedbackSaving(false); }
+  };
 
   const runFitPrediction = async () => {
     if (!bodyId || !productId || !activeProduct) return;
@@ -238,6 +254,31 @@ export default function FitResultView({
           <div className="w-8 h-8 border-2 border-app border-t-accent rounded-full animate-spin mb-3" />
           <p className="text-secondary text-sm">Comparing body geometry with product geometry...</p>
         </div>
+      )}
+
+      {savedPredictionId && comparison && (
+        <Card padding="md">
+          <div className="flex items-center justify-between gap-3 mb-3"><div><h3 className="text-primary text-sm font-medium">Real-world feedback</h3><p className="text-tertiary text-xs">Tell the system what happened so the fit record stays useful.</p></div></div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" disabled={feedbackSaving} onClick={() => void submitFeedback('kept')}>Kept it</Button>
+            <Button size="sm" variant="secondary" disabled={feedbackSaving} onClick={() => void submitFeedback('exchanged')}>Exchanged</Button>
+            <Button size="sm" variant="secondary" disabled={feedbackSaving} onClick={() => void submitFeedback('returned')}>Returned</Button>
+          </div>
+          {feedbackMessage && <p className="text-tertiary text-xs mt-2">{feedbackMessage}</p>}
+        </Card>
+      )}
+
+      {history.length > 0 && (
+        <Card padding="none" className="overflow-hidden">
+          <div className="px-5 py-3 border-b border-app"><h3 className="text-primary text-sm font-medium">Prediction history</h3><p className="text-tertiary text-xs">Saved predictions from this workspace.</p></div>
+          <div className="divide-y divide-app">
+            {history.map((p) => {
+              const body = bodyTwins.find((b) => b.id === p.body_twin_id);
+              const product = products.find((x) => x.id === p.product_twin_id);
+              return <button key={p.id} onClick={() => { setBodyId(p.body_twin_id); setProductId(p.product_twin_id); }} className="w-full text-left px-5 py-3 hover:bg-secondary/50 transition-colors"><div className="flex items-center justify-between gap-3"><div><div className="text-primary text-sm">{product?.product_name ?? 'Product'} · Size {p.recommended_size ?? 'No recommendation'}</div><div className="text-tertiary text-xs">{body?.height_cm ? String(body.height_cm) + 'cm' : 'Body profile'} · {new Date(p.created_at).toLocaleString()}</div></div><Badge variant={p.confidence >= 0.65 ? 'success' : p.confidence >= 0.45 ? 'warning' : 'error'}>{Math.round(p.confidence * 100)}%</Badge></div></button>;
+            })}
+          </div>
+        </Card>
       )}
 
       {/* Results */}
