@@ -18,39 +18,80 @@ function App() {
   const { theme, toggleTheme } = useTheme();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [orgLoading, setOrgLoading] = useState(false);
+  const [orgError, setOrgError] = useState<string | null>(null);
   const [landingState, setLandingState] = useState<LandingState>('landing');
   const [view, setView] = useState<AppView>('dashboard');
   const [orgId, setOrgId] = useState<string | null>(null);
   const [selectedBodyTwinId, setSelectedBodyTwinId] = useState<string | null>(null);
   const [selectedProductTwinId, setSelectedProductTwinId] = useState<string | null>(null);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) setLandingState('app');
-      setLoading(false);
-    });
+  const loadOrganization = useCallback(async () => {
+    setOrgLoading(true);
+    setOrgError(null);
+    try {
+      const id = await ensureOrganization();
+      setOrgId(id);
+    } catch (error) {
+      console.error('Failed to load organization:', error);
+      setOrgId(null);
+      setOrgError(error instanceof Error ? error.message : 'Unable to load your workspace.');
+    } finally {
+      setOrgLoading(false);
+    }
+  }, []);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      (async () => {
-        setSession(session);
-        if (session) {
+  useEffect(() => {
+    let mounted = true;
+
+    const bootstrap = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (!mounted) return;
+        setSession(data.session);
+        if (data.session) {
           setLandingState('app');
-          try {
-            const id = await ensureOrganization();
-            setOrgId(id);
-          } catch (e) {
-            console.error('Failed to ensure organization:', e);
-          }
-        } else {
-          setOrgId(null);
+          await loadOrganization();
+        }
+      } catch (error) {
+        console.error('Auth bootstrap failed:', error);
+        if (mounted) {
+          setSession(null);
           setLandingState('landing');
         }
-      })();
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    bootstrap();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (!mounted) return;
+      setSession(nextSession);
+
+      if (!nextSession) {
+        setOrgId(null);
+        setOrgError(null);
+        setLandingState('landing');
+        setView('dashboard');
+        setSelectedBodyTwinId(null);
+        setSelectedProductTwinId(null);
+        return;
+      }
+
+      setLandingState('app');
+      if (event === 'SIGNED_IN') {
+        void loadOrganization();
+      }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [loadOrganization]);
 
   const handleSignOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -58,27 +99,28 @@ function App() {
     setOrgId(null);
     setLandingState('landing');
     setView('dashboard');
+    setSelectedBodyTwinId(null);
+    setSelectedProductTwinId(null);
   }, []);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-app flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-app border-t-accent rounded-full animate-spin" />
-      </div>
-    );
+    return <div className="min-h-screen bg-app flex items-center justify-center"><div className="w-6 h-6 border-2 border-app border-t-accent rounded-full animate-spin" /></div>;
   }
 
   if (landingState === 'landing' && !session) {
-    return (
-      <LandingPage
-        onGetStarted={() => setLandingState('auth')}
-        onSignIn={() => setLandingState('auth')}
-      />
-    );
+    return <LandingPage onGetStarted={() => setLandingState('auth')} onSignIn={() => setLandingState('auth')} />;
   }
 
   if (landingState === 'auth' && !session) {
     return <AuthScreen />;
+  }
+
+  if (session && orgLoading && !orgId) {
+    return <div className="min-h-screen bg-app flex items-center justify-center px-4"><div className="w-full max-w-md surface rounded-2xl p-6 text-center"><div className="mx-auto mb-4 w-8 h-8 border-2 border-app border-t-accent rounded-full animate-spin" /><h2 className="text-primary font-semibold">Loading your workspace</h2><p className="text-secondary text-sm mt-2">Preparing your body and product data.</p></div></div>;
+  }
+
+  if (session && !orgId) {
+    return <div className="min-h-screen bg-app flex items-center justify-center px-4"><div className="w-full max-w-md surface rounded-2xl p-6"><h2 className="text-primary font-semibold text-lg">Workspace unavailable</h2><p className="text-secondary text-sm mt-2">{orgError ?? 'We could not load your workspace.'}</p><button onClick={() => void loadOrganization()} disabled={orgLoading} className="mt-5 w-full rounded-lg bg-accent text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50">{orgLoading ? 'Retrying…' : 'Retry'}</button></div></div>;
   }
 
   const navItems: { key: AppView; label: string; icon: string }[] = [
