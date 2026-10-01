@@ -8,6 +8,8 @@ import type {
   ProductTwin,
   ScanRecord,
   ScanMethod,
+  FitPredictionRecord,
+  FitFeedbackRecord,
 } from '@/lib/types';
 import { getScanModelVersion } from '@/lib/scanner';
 import { getFitModelVersion } from '@/lib/fit-engine';
@@ -347,4 +349,123 @@ export async function getEvents(organizationId: string, limit = 50): Promise<unk
 
   if (error) throw error;
   return data ?? [];
+}
+
+
+export async function updateBodyTwin(
+  bodyTwinId: string,
+  updates: {
+    height_cm?: number | null;
+    metadata?: Record<string, unknown>;
+    measurements?: BodyMeasurement[];
+  },
+): Promise<void> {
+  const { data: twin, error: twinError } = await supabase
+    .from('body_twins')
+    .select('organization_id')
+    .eq('id', bodyTwinId)
+    .single();
+  if (twinError) throw twinError;
+
+  const patch: Record<string, unknown> = {};
+  if (updates.height_cm !== undefined) patch.height_cm = updates.height_cm;
+  if (updates.metadata !== undefined) patch.metadata = updates.metadata;
+  if (Object.keys(patch).length) {
+    const { error } = await supabase.from('body_twins').update(patch).eq('id', bodyTwinId);
+    if (error) throw error;
+  }
+
+  if (updates.measurements) {
+    const { error: deleteError } = await supabase.from('body_measurements').delete().eq('body_twin_id', bodyTwinId);
+    if (deleteError) throw deleteError;
+    const rows = updates.measurements.map((m) => ({
+      body_twin_id: bodyTwinId,
+      measurement_type: m.measurement_type,
+      value_cm: m.value_cm,
+      uncertainty_cm: m.uncertainty_cm,
+      confidence: m.confidence,
+    }));
+    const { error } = await supabase.from('body_measurements').insert(rows);
+    if (error) throw error;
+  }
+
+  await logEvent({
+    organization_id: twin.organization_id,
+    event_type: 'body_twin.updated',
+    entity_type: 'body_twin',
+    entity_id: bodyTwinId,
+    payload: { measurements_updated: Boolean(updates.measurements), profile_updated: Object.keys(patch).length > 0 },
+    model_version: getScanModelVersion(),
+  });
+}
+
+export async function updateProductTwin(
+  productTwinId: string,
+  updates: {
+    product_name?: string;
+    sku?: string | null;
+    size?: string;
+    garment_type?: string | null;
+    fit_type?: string;
+    manufacturing_tolerance_cm?: number;
+    measurements?: ProductMeasurement[];
+  },
+): Promise<void> {
+  const { data: twin, error: twinError } = await supabase
+    .from('product_twins')
+    .select('organization_id')
+    .eq('id', productTwinId)
+    .single();
+  if (twinError) throw twinError;
+
+  const patch: Record<string, unknown> = {};
+  for (const key of ['product_name', 'sku', 'size', 'garment_type', 'fit_type', 'manufacturing_tolerance_cm'] as const) {
+    if (updates[key] !== undefined) patch[key] = updates[key];
+  }
+  if (Object.keys(patch).length) {
+    const { error } = await supabase.from('product_twins').update(patch).eq('id', productTwinId);
+    if (error) throw error;
+  }
+
+  if (updates.measurements) {
+    const { error: deleteError } = await supabase.from('product_measurements').delete().eq('product_twin_id', productTwinId);
+    if (deleteError) throw deleteError;
+    const rows = updates.measurements.map((m) => ({
+      product_twin_id: productTwinId,
+      measurement_type: m.measurement_type,
+      value_cm: m.value_cm,
+    }));
+    const { error } = await supabase.from('product_measurements').insert(rows);
+    if (error) throw error;
+  }
+
+  await logEvent({
+    organization_id: twin.organization_id,
+    event_type: 'product.updated',
+    entity_type: 'product_twin',
+    entity_id: productTwinId,
+    payload: { measurements_updated: Boolean(updates.measurements), fields: Object.keys(patch) },
+    model_version: null,
+  });
+}
+
+export async function getFitPredictions(organizationId: string, limit = 30): Promise<FitPredictionRecord[]> {
+  const { data, error } = await supabase
+    .from('fit_predictions')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as FitPredictionRecord[];
+}
+
+export async function getFitFeedback(fitPredictionId: string): Promise<FitFeedbackRecord[]> {
+  const { data, error } = await supabase
+    .from('fit_feedback')
+    .select('*')
+    .eq('fit_prediction_id', fitPredictionId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as FitFeedbackRecord[];
 }
