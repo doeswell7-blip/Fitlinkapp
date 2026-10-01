@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getProductTwins, getProductMeasurements, createProductTwin } from '@/lib/data';
+import { getProductTwins, getProductMeasurements, createProductTwin, updateProductTwin } from '@/lib/data';
 import { Card, Button, Input, Select, Badge, EmptyState } from '@/components/ui';
 import type { ProductTwin, ProductMeasurement, ProductMeasurementType, FitType } from '@/lib/types';
 
@@ -33,6 +33,9 @@ export default function ProductView({ orgId, selectedId, onSelect }: ProductView
   const [fitType, setFitType] = useState<FitType>('regular');
   const [tolerance, setTolerance] = useState('1.0');
   const [formMeasurements, setFormMeasurements] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
 
   useEffect(() => { loadProducts(); }, [orgId]);
   useEffect(() => { if (activeId) loadMeasurements(activeId); }, [activeId]);
@@ -89,6 +92,35 @@ export default function ProductView({ orgId, selectedId, onSelect }: ProductView
   };
 
   const activeProduct = products.find((p) => p.id === activeId);
+
+  const startEditing = () => {
+    if (!activeProduct) return;
+    const values: Record<string, string> = { product_name: activeProduct.product_name, sku: activeProduct.sku ?? '', size: activeProduct.size, garment_type: activeProduct.garment_type ?? '', fit_type: activeProduct.fit_type, manufacturing_tolerance_cm: String(activeProduct.manufacturing_tolerance_cm) };
+    measurements.forEach((m) => { values[m.measurement_type] = String(m.value_cm); });
+    setEditValues(values);
+    setEditing(true);
+  };
+
+  const saveEdits = async () => {
+    if (!activeProduct) return;
+    setSaving(true);
+    try {
+      const updatedMeasurements = measurements.map((m) => ({ ...m, value_cm: Number(editValues[m.measurement_type] ?? m.value_cm) })).filter((m) => Number.isFinite(m.value_cm) && m.value_cm > 0);
+      await updateProductTwin(activeProduct.id, {
+        product_name: editValues.product_name?.trim() || activeProduct.product_name,
+        sku: editValues.sku?.trim() || null,
+        size: editValues.size?.trim() || activeProduct.size,
+        garment_type: editValues.garment_type?.trim() || null,
+        fit_type: editValues.fit_type || activeProduct.fit_type,
+        manufacturing_tolerance_cm: Number(editValues.manufacturing_tolerance_cm) || activeProduct.manufacturing_tolerance_cm,
+        measurements: updatedMeasurements,
+      });
+      await loadProducts();
+      await loadMeasurements(activeProduct.id);
+      setEditing(false);
+    } catch (err) { alert(err instanceof Error ? err.message : 'Failed to update product'); }
+    finally { setSaving(false); }
+  };
 
   if (loading) {
     return (
@@ -208,6 +240,22 @@ export default function ProductView({ orgId, selectedId, onSelect }: ProductView
                     <div className="text-primary text-sm font-medium">±{activeProduct.manufacturing_tolerance_cm}cm</div>
                   </Card>
                 </div>
+
+                <Card padding="md">
+                  <div className="flex items-center justify-between gap-3 mb-3"><div><h3 className="text-primary text-sm font-medium">Product details</h3><p className="text-tertiary text-xs">Edit measurements or metadata without creating a new Product Twin.</p></div>{!editing && <Button variant="secondary" size="sm" onClick={startEditing}>Edit</Button>}</div>
+                  {editing && <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Input label="Product Name" value={editValues.product_name ?? ''} onChange={(e) => setEditValues({ ...editValues, product_name: e.target.value })} />
+                      <Input label="SKU" value={editValues.sku ?? ''} onChange={(e) => setEditValues({ ...editValues, sku: e.target.value })} />
+                      <Input label="Size" value={editValues.size ?? ''} onChange={(e) => setEditValues({ ...editValues, size: e.target.value })} />
+                      <Input label="Garment Type" value={editValues.garment_type ?? ''} onChange={(e) => setEditValues({ ...editValues, garment_type: e.target.value })} />
+                      <Select label="Fit Type" value={editValues.fit_type ?? 'regular'} onChange={(e) => setEditValues({ ...editValues, fit_type: e.target.value })}><option value="slim">Slim</option><option value="regular">Regular</option><option value="relaxed">Relaxed</option><option value="oversized">Oversized</option><option value="custom">Custom</option></Select>
+                      <Input label="Tolerance (cm)" type="number" step="0.1" value={editValues.manufacturing_tolerance_cm ?? ''} onChange={(e) => setEditValues({ ...editValues, manufacturing_tolerance_cm: e.target.value })} />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{Object.keys(PRODUCT_MEASUREMENT_LABELS).map((type) => <Input key={type} label={PRODUCT_MEASUREMENT_LABELS[type]} type="number" step="0.5" value={editValues[type] ?? ''} onChange={(e) => setEditValues({ ...editValues, [type]: e.target.value })} />)}</div>
+                    <div className="flex gap-2 justify-end"><Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button><Button size="sm" onClick={() => void saveEdits()} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div>
+                  </div>}
+                </Card>
 
                 <Card padding="none" className="overflow-hidden">
                   <div className="px-5 py-3 border-b border-app">
